@@ -110,9 +110,8 @@ function toBlob(canvas: HTMLCanvasElement, mime: string, quality?: number): Prom
 }
 
 /**
- * Check whether the browser can actually encode the requested format.
- * Returns the format the browser produced — may differ from `requested`
- * (e.g. WebP → PNG on browsers that don't support WebP encoding).
+ * Validate the requested output encoder before starting compression.
+ * The selected format is preserved; unsupported native WebP uses WASM.
  */
 async function probeFormat(requested: OutputFormat): Promise<OutputFormat> {
   const c = document.createElement("canvas");
@@ -120,14 +119,28 @@ async function probeFormat(requested: OutputFormat): Promise<OutputFormat> {
   const ctx = c.getContext("2d")!;
   ctx.fillStyle = "#f00";
   ctx.fillRect(0, 0, 4, 4);
-  const blob = await toBlob(c, requested, 0.8);
-  // blob.type is always a valid MIME from the browser
-  const got = blob.type as string;
-  if (got === "image/jpeg" || got === "image/png" || got === "image/webp") {
-    return got as OutputFormat;
+  // Make sure the requested format can be encoded. WebP has a WASM fallback,
+  // so an unsupported canvas encoder never silently changes the user's choice.
+  await toFormatBlob(c, requested, 0.8);
+  return requested;
+}
+
+/** Encode in the requested format, using the WebP WASM encoder if needed. */
+async function toFormatBlob(canvas: HTMLCanvasElement, mime: OutputFormat, quality?: number): Promise<Blob> {
+  const blob = await toBlob(canvas, mime, quality);
+  if (blob.type === mime) return blob;
+
+  if (mime === "image/webp") {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("WebPエンコーダーを初期化できませんでした。");
+    const { encode } = await import("@jsquash/webp");
+    const data = await encode(ctx.getImageData(0, 0, canvas.width, canvas.height), {
+      quality: Math.round((quality ?? 0.8) * 100),
+    });
+    return new Blob([data], { type: "image/webp" });
   }
-  // Fallback: if browser returned something unexpected, default to PNG
-  return "image/png";
+
+  throw new Error(`${mime}形式の画像をエンコードできませんでした。`);
 }
 
 /* ─── PNG quantization via @jsquash (optional) ─────── */
@@ -249,7 +262,7 @@ export async function compress(
     let smallest = Number.POSITIVE_INFINITY;
     for (let i = 0; i < 12; i++) {
       const quality = (low + high) / 2;
-      const blob = await toBlob(canvas, actualFormat, quality);
+      const blob = await toFormatBlob(canvas, actualFormat, quality);
       smallest = Math.min(smallest, blob.size);
       if (blob.size <= targetBytes) {
         best = blob;
@@ -344,7 +357,7 @@ export async function compress(
   for (let i = 0; i < 8; i++) {
     const q = (lo + hi) / 2;
     const canvas = drawToCanvas(img, crop, baseW, baseH, addWhiteBg, opts.monochrome);
-    const blob = await toBlob(canvas, actualFormat, q);
+    const blob = await toFormatBlob(canvas, actualFormat, q);
     progress(onProgress, 0.05 + 0.40 * (i / 8));
     if (blob.size <= targetBytes) { bestBlob = blob; bestQuality = q; lo = q; }
     else hi = q;
@@ -366,7 +379,7 @@ export async function compress(
     const h = Math.max(1, Math.round(baseH * scales[si]));
     for (let qi = 0; qi < qualities.length; qi++) {
       const canvas = drawToCanvas(img, crop, w, h, addWhiteBg, opts.monochrome);
-      const blob = await toBlob(canvas, actualFormat, qualities[qi]);
+      const blob = await toFormatBlob(canvas, actualFormat, qualities[qi]);
       progress(onProgress, 0.45 + 0.50 * ((si * qualities.length + qi) / (scales.length * qualities.length)));
       if (blob.size <= targetBytes) {
         warnIfLargeResize(w, h, baseW, baseH, Boolean(opts.allowLowQuality));
@@ -380,7 +393,7 @@ export async function compress(
   }
 
   const tiny = drawToCanvas(img, crop, 1, 1, addWhiteBg, opts.monochrome);
-  const tinyBlob = await toBlob(tiny, actualFormat, 0.01);
+  const tinyBlob = await toFormatBlob(tiny, actualFormat, 0.01);
   if (tinyBlob.size <= targetBytes) {
     progress(onProgress, 1);
     return { blob: tinyBlob, actualFormat, width: 1, height: 1 };
