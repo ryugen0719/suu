@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   experimental: {
     agentFeedback: true,
   },
@@ -14,6 +13,15 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+  },
+  // Allow WASM imports from @jsquash packages
+  webpack: (config) => {
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+      layers: true,
+    };
+    return config;
   },
 };
 
