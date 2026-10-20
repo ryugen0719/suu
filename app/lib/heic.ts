@@ -4,15 +4,13 @@
  */
 
 export async function decodeHeic(file: File): Promise<Blob> {
-  // Dynamic import to avoid loading the heavy WASM bundle on start
-  const heic2any = (await import("heic2any")).default;
-  const result = await heic2any({
+  // Load the decoder only for HEIC/HEIF input to keep the initial bundle small.
+  const { heicTo } = await import("heic-to");
+  return heicTo({
     blob: file,
-    toType: "image/jpeg",
+    type: "image/jpeg",
     quality: 0.92,
   });
-  // heic2any may return an array for multi-frame HEIC
-  return Array.isArray(result) ? result[0] : result;
 }
 
 export function isHeic(file: File): boolean {

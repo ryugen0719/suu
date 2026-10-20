@@ -106,7 +106,9 @@ export default function SuuApp() {
     } catch (e) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       console.error(e);
-      setErrorMsg("画像の読み込みに失敗しました。");
+      setErrorMsg(isHeic(file)
+        ? "HEIC / HEIF画像を変換できませんでした。別の画像を選ぶか、JPEG形式に変換してからお試しください。"
+        : "画像の読み込みに失敗しました。別の画像を選んでもう一度お試しください。");
       setStage("error");
     }
   }, [image]);
